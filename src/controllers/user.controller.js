@@ -87,7 +87,7 @@ const registerUser = asyncHandler(async (req, res) => {
 })
 
 const loginUser = asyncHandler(async (req, res) => {
-    
+
     const {username, email, password } = req.body;
 
     if (!username && !email) {
@@ -163,8 +163,48 @@ const logoutUser = asyncHandler(async (req, res) => {
     )
 });
 
+
+const refreshAccessToken = asyncHandler(async (req, res) => {
+    const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken;
+
+    if( !incomingRefreshToken) {
+        throw new ApiError(401, "Refresh token is required");
+    }
+
+    try {
+        const decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET);
+    
+        const user = await User.findById(decodedToken.id);
+    
+        if (!user || user.refreshToken !== incomingRefreshToken) {
+            throw new ApiError(401, "Invalid refresh token");
+        }
+    
+        const {newRefreshToken,newAccessToken} = await generateAccessTokenAndRefreshToken(user._id);
+    
+        const options = {
+            httpOnly: true,
+            secure: true,
+        }
+    
+        return res
+            .status(200)
+            .cookie("refreshToken",newRefreshToken, options)
+            .cookie("accessToken",newAccessToken, options)
+            .json(
+                new ApiResponse(200, {
+                    accessToken: newAccessToken,
+                    refreshToken: newRefreshToken
+                }, "Access token refreshed successfully")
+            )
+    } catch (error) {
+        throw new ApiError(401, error?.message || "Invalid refresh token");
+    }
+})
+
 export {
     registerUser,
     loginUser,
-    logoutUser
+    logoutUser,
+    refreshAccessToken
 };//object export: cannot use other than 'registerUser' name during import

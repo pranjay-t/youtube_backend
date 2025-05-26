@@ -4,6 +4,23 @@ import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
+const generateAccessTokenAndRefreshToken = async(userId) => {
+
+   try {
+
+    const user = User.findById(userId);
+    const accessToken = user.generateAccessToken();
+    const refreshToken = user.generateRefreshToken();
+
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false});
+    return {accessToken, refreshToken};
+
+   } catch (error) {
+    throw new ApiError(500, "Something went wrong while generating tokens");
+   }
+}
+
 const registerUser = asyncHandler(async (req,res) => {
     const {email, password, username, fullName} = req.body;
     console.log("User registration data:", {email, password,username});
@@ -67,4 +84,56 @@ const registerUser = asyncHandler(async (req,res) => {
     )
 })
 
-export {registerUser};//object export: cannot use other than 'registerUser' name during import
+const loginUser = asyncHandler(async (req, res) => {
+
+    const {username, email, password} = req.body;
+
+    if(!username || !email){
+        throw new ApiError(400, "Username or email is required");
+    }
+
+    const user = await User.findOne({
+        $or: [{username}, {email}]
+    })
+
+    if(!user){
+        throw new ApiError(404, "User not found");
+    }
+
+    const isPasswordMatched = await user.isPasswordCorrect(password);
+
+    if(!isPasswordMatched){
+        throw new ApiError(401, "Invalid user credentials");
+    }
+
+    const {accessToken, refreshToken} = await generateAccessTokenAndRefreshToken(user._id);
+
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
+
+    const options = {
+        httpOnly: true,
+        secure: true,
+    }
+
+    return res
+    .status(200)
+    .cookie("refreshToken", refreshToken, options)
+    .cookie("accessToken", accessToken, options)
+    .json(
+        new ApiResponse(
+            200,
+            {
+                user: loggedInUser,
+                accessToken,
+                refreshToken
+            }
+            , "User logged in successfully"
+        )
+    )
+
+})
+
+export {
+    registerUser,
+    loginUser
+};//object export: cannot use other than 'registerUser' name during import
